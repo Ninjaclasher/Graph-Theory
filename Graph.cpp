@@ -1,281 +1,377 @@
-#include "Graph.h"
+#include <bits/stdc++.h>
 
-//Contructor to set all values to default
-disjoint_set::disjoint_set(int V)
+using namespace std;
+
+class DisjointSet
+{
+public:
+    DisjointSet(int V);
+    bool merge(int u, int v);
+    int find(int u);
+private:
+    int V;
+    vector<int> par, rnk;
+};
+
+DisjointSet::DisjointSet(int V)
 {
     this->V = V;
-    rnk.resize(V, 0), parent.resize(V);
-    int n = 0;
-    generate(parent.begin(), parent.end(), [&n] () {return n++;});
+    rnk.resize(V+1,1);
+    par.resize(V+1);
+    iota(par.begin(), par.end(), 0);
 }
 
-//Recursive function to find the parent of selected node
-int disjoint_set::Find(int node)
+bool DisjointSet::merge(int u, int v)
 {
-    if (node != parent[node]) parent[node] = Find(parent[node]);
-    return parent[node];
+    u = find(u), v = find(v);
+    if (u == v)
+        return false;
+    if (rnk[u] > rnk[v])
+        par[v] = u;
+    else
+        par[u] = v;
+    if (rnk[u] == rnk[v])
+        rnk[v]++;
+    return true;
 }
 
-//Merges two disjoint sets together
-void disjoint_set::Merge(int node1, int node2)
+int DisjointSet::find(int u)
 {
-    node1 = Find(node1), node2 = Find(node2);
-    if (rnk[node1] > rnk[node2]) parent[node2] = node1;
-    else parent[node1] = node2;
-    if (rnk[node1] == rnk[node2]) rnk[node2]++;
+    if (u != par[u])
+        par[u] = find(par[u]);
+    return par[u];
 }
 
-//Constructor to set container sizes
+
+class Tree
+{
+public:
+    Tree(int V);
+    Tree(int V, vector<pair<int,pair<int,int>>> edge, function<bool(int,int)> comp);
+    inline void addEdge(int u, int v, int w = 1) 
+    { 
+        if (edgesAdded >= V-1)
+            throw logic_error("Tree is already fully connected.");
+        edgesAdded++; 
+        treeSum += w;
+        adj[u].push_back({v, w}), adj[v].push_back({u, w}); 
+    }
+    inline int getTreeSum() { return treeSum; }
+    void build(function<int(int,int)> run);
+    int lca(int a, int b);
+    int queryPath(int a, int b);
+    void longestPath(int u, int &maxPath, int &maxNode, int p, int d);
+private:
+    int V, edgesAdded, treeSum;
+    function<int(int,int)> run;
+    vector<vector<pair<int,int>>> adj;
+    vector<vector<int>> spt;
+    vector<vector<int>> weight;
+    vector<int> height;
+    void configure(int V);
+    int queryPathUtil(int a, int l);
+    void dfs(int u, int p, int w);
+};
+
+Tree::Tree(int V)
+{
+    configure(V);
+}
+
+Tree::Tree(int V, vector<pair<int,pair<int,int>>> edge, function<bool(int,int)> comp = less<int>())
+{
+    configure(V);
+    sort(edge.begin(), edge.end(), [comp](auto &a, auto &b){return comp(a.first, b.first);});
+    DisjointSet ds(V);
+    for (auto &x : edge)
+        if (ds.merge(x.second.first, x.second.second))
+            addEdge(x.second.first, x.second.second, x.first);
+}
+
+void Tree::configure(int V)
+{
+    this->V = V;
+    edgesAdded = treeSum = 0;
+    adj.resize(V+1);
+    height.resize(V+1);
+    spt.resize((int)log2(V)+3, vector<int>(V+1));
+    weight.resize((int)log2(V)+3, vector<int>(V+1));
+}
+
+void Tree::dfs(int u, int p, int w)
+{
+    height[u] = height[p]+1;
+    spt[0][u] = p;
+    weight[0][u] = w;
+    for (auto &x : adj[u])
+        if (x.first != p)
+            dfs(x.first, u, x.second);
+}
+
+void Tree::build(function<int(int,int)> run = plus<int>())
+{
+    if (edgesAdded != V-1)
+        throw logic_error("Tree is not fully connected or build function called twice.");
+    edgesAdded++;
+    this->run = run;
+    dfs(1, 1, 0);
+    for (int x = 1; x < spt.size(); x++)
+        for (int y = 1; y <= V; y++)
+            spt[x][y] = spt[x-1][spt[x-1][y]],
+            weight[x][y] = run(weight[x-1][y], weight[x-1][spt[x-1][y]]);
+}
+
+int Tree::lca(int a, int b)
+{
+    int h = height[b]-height[a];
+    if (h < 0)
+        swap(a, b), h = -h;
+    for (int x = 0; x < spt.size(); x++)
+        if (h>>x & 1)
+            b = spt[x][b];
+    if (a == b)
+        return a;
+    for (int x = spt.size()-1; x >= 0; x--)
+        if (spt[x][a] != spt[x][b])
+            a = spt[x][a], b = spt[x][b];
+    return spt[0][a];
+}
+
+int Tree::queryPathUtil(int a, int l)
+{
+    int w = -1, h = height[a]-height[l];
+    for (int x = 0; x < spt.size(); x++)
+        if (h>>x & 1)
+            w = (w == -1 ? weight[x][a] : run(w, weight[x][a])), a = spt[x][a];
+    return w;
+}
+
+int Tree::queryPath(int a, int b)
+{
+    int l = lca(a, b);
+    int w = queryPathUtil(a, l);
+    if (l != b)
+        w = (w == -1 ? queryPathUtil(b, l) : run(w, queryPathUtil(b, l)));
+    return w;
+}
+
+void Tree::longestPath(int u, int &maxPath, int &maxNode, int p = -1, int d = 0)
+{
+    for (auto &x : adj[u])
+        if (x.first != p)
+            longestPath(x.first, maxPath, maxNode, u, d + x.second);
+    if (d > maxPath)
+        maxPath = d, maxNode = u;
+}
+
+class Graph
+{
+public:
+    Graph(int V);
+    inline void dAddEdge(int u, int v, int w = 1) { adj[u].push_back({v, w}); }
+    inline void uAddEdge(int u, int v, int w = 1) { dAddEdge(u, v, w); dAddEdge(v, u, w); }
+    int dijkstras(int src, int fin);
+    vector<int> bfs(int src);
+    set<vector<int>> getCycles(int minLength);
+    vector<pair<int,int>> getBridges();
+    vector<int> getArticulationPoints();
+    vector<vector<int>> SCC();
+private:
+    int V;
+    vector<vector<pair<int,int>>> adj;
+    void cycleUtil(int u, int minLength, vector<bool> &vis, vector<int> &cur, set<vector<int>> &cycles);
+    void bridgeUtil(int u, int &t, vector<int> &low, vector<int> &dfn, vector<int> &par, vector<pair<int,int>> &bridges);
+    void APUtil(int u, int &t, vector<int> &low, vector<int> &dfn, vector<int> &par, vector<int> &articulationPoints);
+    void SCCUtil(int u, int &t, int &c, vector<int> &low, vector<int> &dfn, vector<bool> &vis, vector<int> &cur, vector<vector<int>> &scc);
+};
+
 Graph::Graph(int V)
 {
     this->V = V;
-    adj.resize(V), dist.resize(V), vis.resize(V);
-    resetAll();
+    adj.resize(V+1);
 }
 
-//Resets everything to default values as if new object was created
-void Graph::resetAll()
+int Graph::dijkstras(int src, int fin)
 {
-    for (auto &x : adj) x.clear();
-    unprocessedEdges.clear();
-    reset();
-}
-
-//Resets all non-essential containers that are not needed to recreate the values
-void Graph::reset()
-{
-    storedCycles.clear();
-    fill(dist.begin(), dist.end(), INT_MAX);
-    fill(vis.begin(), vis.end(), false);
-}
-
-//Standard graph BFS/Dijkstra depending on the weight in the adjacency matrix
-//Uses a Priority Queue and returns a vector of distances from the source to each node
-vector<int> Graph::graphBFS (int src)
-{
-    reset();
-    priority_queue<pair<int,int>,vector<pair<int,int>>,greater<pair<int,int>>> buf;
+    vector<bool> vis(V+1);
+    vector<int> dist(V+1, INT_MAX);
     dist[src] = 0;
-    vis[src] = true;
-    buf.push(make_pair(0, src));
+    priority_queue<pair<int,int>> buf;
+    buf.push({0, src});
     while (!buf.empty())
     {
         int u = buf.top().second;
-        vis[u] = false;
         buf.pop();
-        for (int x = 0; x < adj[u].size(); x++)
+        vis[u] = false;
+        for (auto &x : adj[u])
         {
-            if (dist[u] + adj[u][x].second < dist[adj[u][x].first])
+            if (dist[u] + x.second < dist[x.first])
             {
-                dist[adj[u][x].first] = dist[u] + adj[u][x].second;
-                if (!vis[adj[u][x].first])
-                {
-                    vis[adj[u][x].first] = true;
-                    buf.push(make_pair(dist[adj[u][x].first], adj[u][x].first));
-                }
+                dist[x.first] = dist[u] + x.second;
+                if (x.first == fin) return dist[x.first];
+                if (!vis[x.first])
+                    vis[x.first] = true, buf.push({-dist[x.first], x.first});
             }
         }
     }
+    return -1;
+}
+
+vector<int> Graph::bfs(int src)
+{
+    vector<bool> vis(V+1);
+    vector<int> dist(V+1, INT_MAX);
+    dist[src] = 0;
+    queue<int> buf;
+    buf.push(src);
+    while (!buf.empty())
+    {
+        int u = buf.front();
+        buf.pop();
+        vis[u] = false;
+        for (auto &x : adj[u])
+        {
+            if (dist[u] + x.second < dist[x.first])
+            {
+                dist[x.first] = dist[u] + x.second;
+                if (!vis[x.first])
+                    vis[x.first] = true, buf.push(x.first);
+            }
+        }
+    }
+    for (auto &x : dist)
+        if (x == INT_MAX)
+            x = -1;
     return dist;
 }
 
-//Standard BFS for a grid and returns a 2-d grid of distances from the source
-//Parameters are a 2-d grid of characters, a character to represent an impassable object,
-//a vector of pairs to indicate the valid relative movement options, and the source position
-vector<vector<int>> Graph::gridBFS(const vector<vector<char>> &grid, const char wall, const vector<pair<int,int>> &relativeMove, const int srcX, const int srcY)
+void Graph::cycleUtil(int u, int minLength, vector<bool> &vis, vector<int> &cur, set<vector<int>> &cycles)
 {
-    reset();
-    vector<vector<int>> dists (grid.size());
-    for (auto &x : dists) x.resize(grid[0].size(), INT_MAX);
-    vector<vector<bool>> visited (grid.size());
-    for (auto &x : visited) x.resize(grid[0].size(), false);
-    dists[srcX][srcY] = 0;
-    queue <pair<int,int>> buf;
-    buf.push(make_pair(srcX, srcY));
-    while (!buf.empty())
-    {
-        int x = buf.front().first, y = buf.front().second;
-        buf.pop();
-        for (auto &i : relativeMove)
-        {
-            if (grid[x+i.first][y+i.second] != wall && dists[x][y] + 1 < dists[x+i.first][y+i.second])
-            {
-                dists[x+i.first][y+i.second] = dists[x][y] + 1;
-                if (!visited[x+i.first][y+i.second])
-                {
-                    visited[x+i.first][y+i.second] = true;
-                    buf.push(make_pair(x+i.first, y+i.second));
-                }
-            }
-        }
-    }
-    return dists;
-}
-
-//Overloaded gridBFS for when a default movement (8 squares around current position) in a grid is enough
-vector<vector<int>> Graph::gridBFS(const vector<vector<char>> &grid, const char wall, const int srcX, const int srcY)
-{
-    vector<pair<int,int>> moveIteration = {make_pair(1,0), make_pair(-1,0), make_pair(0,1), make_pair(0,-1),
-                                           make_pair(1,1), make_pair(-1,1), make_pair(-1,1), make_pair(-1,-1)};
-    return gridBFS(grid, wall, moveIteration, srcX, srcY);
-}
-
-//Kruskal Minimum Spanning Tree (MST)
-//Uses the edges stored in unprocessedEdges and pushes each edge part of the MST into the adjacency matrix
-//Uses the class disjoint_set
-void Graph::MST()
-{
-    reset();
-    for (auto &x : adj) x.clear();
-    disjoint_set ds (V);
-    sort(unprocessedEdges.begin(), unprocessedEdges.end());
-    for (auto &x : unprocessedEdges)
-    {
-        int set1 = ds.Find(x.second.first), set2 = ds.Find(x.second.second);
-        if (set1 != set2)
-        {
-            uAddEdge(x.second.first, x.second.second, x.first);
-            ds.Merge(set1, set2);
-        }
-    }
-}
-
-//Recursive function to find cycles in a graph
-//Initially called by findCyclesRecursive
-void Graph::rCycleUtil(int pos, vector <int> &cycleTmp)
-{
-    if (vis[pos])
-    {
-        vector<int> ss;
-        for (auto i = find (cycleTmp.begin(), cycleTmp.end(), pos); i != cycleTmp.end(); i++) ss.push_back(*i);
-        if (find(storedCycles.begin(), storedCycles.end(), ss) == storedCycles.end()) storedCycles.push_back(ss);
-        return;
-    }
-    cycleTmp.push_back(pos);
-    vis[pos] = true;
-    for (auto &x : adj[pos]) rCycleUtil(x.first, cycleTmp);
-    vis[pos] = false;
-    cycleTmp.pop_back();
-}
-
-//Function to trigger rCycleUtil and get all the cycles in a graph
-vector<vector<int>> Graph::getCyclesRecursive()
-{
-    reset();
-    vector <int> cycleTmp;
-    for (int x = 0; x < V; x++)
-        rCycleUtil(x, cycleTmp);
-    sort (storedCycles.begin(), storedCycles.end());
-    return storedCycles;
-}
-
-//Iterative function that returns all the cycles in a graph using a stack
-vector<vector<int>> Graph::getCyclesIterative()
-{
-    reset();
-    stack<vector<int>> buf;
-    for (int i = 0; i < V; i++)
-    {
-        buf.push (vector<int> {i});
-        while (!buf.empty())
-        {
-            vector<int> tmp = buf.top();
-            buf.pop();
-            int v = tmp.back();
-            for (auto &x : adj[v])
-            {
-                bool found = false;
-                vector<int> ss;
-                for (auto &y : tmp)
-                {
-                    if (x.first == y) found = true;
-                    if (found) ss.push_back(y);
-                }
-                if (found && find(storedCycles.begin(), storedCycles.end(), ss) == storedCycles.end())
-                    storedCycles.push_back(ss);
-                tmp.push_back(x.first);
-                if (!found) buf.push(tmp);
-                tmp.pop_back();
-            }
-        }
-    }
-    sort (storedCycles.begin(), storedCycles.end());
-    return storedCycles;
-}
-
-//Recursive function to get all the bridges in a graph
-void Graph::bridgeUtil(int u, vector<pair<int,int>> &times, vector<int> &parent, vector<pair<int,int>> &bridges)
-{
-    static int time = 0;
+    cur.push_back(u);
     vis[u] = true;
-    times[u] = make_pair(++time, time);
- 
     for (auto &x : adj[u])
-    { 
-        if (!vis[x.first])
+    {
+        if (vis[x.first])
         {
-            parent[x.first] = u;
-            bridgeUtil(x.first, times, parent, bridges);
-            times[u].first = min(times[u].first, times[x.first].first);
-            if (times[x.first].first > times[u].second)
-                bridges.push_back(make_pair(u, x.first));
+            auto it = find(cur.begin(), cur.end(), x.first);
+            if (cur.end()-it >= minLength)
+                cycles.insert(vector<int>(it, cur.end()));
         }
-        else if (x.first != parent[u])
-            times[u].first  = min(times[u].first, times[x.first].second);
+        else
+            cycleUtil(x.first, minLength, vis, cur, cycles);
+    }
+    vis[u] = false;
+    cur.pop_back();
+}
+
+set<vector<int>> Graph::getCycles(int minLength)
+{
+    vector<bool> vis(V+1);
+    vector<int> cur(V+1);
+    set<vector<int>> cycles;
+    for (int x = 1; x <= V; x++)
+        cycleUtil(x, minLength, vis, cur, cycles);
+    return cycles;
+}
+
+void Graph::bridgeUtil(int u, int &t, vector<int> &low, vector<int> &dfn, vector<int> &par, vector<pair<int,int>> &bridges)
+{
+    dfn[u] = low[u] = ++t;
+    for (auto &x : adj[u])
+    {
+        if (!low[x.first])
+        {
+            par[x.first] = u;
+            bridgeUtil(x.first, t, low, dfn, par, bridges);
+            low[u] = min(low[u], low[x.first]);
+            if (low[x.first] > dfn[u])
+                bridges.push_back({u, x.first});
+        }
+        else if (par[u] != x.first)
+            low[u] = min(low[u], dfn[x.first]);
     }
 }
 
-//Function to trigger bridgeUtil and get all the bridges 
-//(edges where it is the only connection between two nodes) in a graph
 vector<pair<int,int>> Graph::getBridges()
 {
-    reset();
-    vector<pair<int,int>> times (V, make_pair(0,0));
-    vector<int> parent (V, -1);
+    vector<int> low(V+1), dfn(V+1), par(V+1);
+    int t = 0;
     vector<pair<int,int>> bridges;
-
-    for (int i = 0; i < V; i++)
-        if (!vis[i])
-            bridgeUtil(i, times, parent, bridges);
-    sort (bridges.begin(), bridges.end());
+    for (int x = 1; x <= V; x++)
+        if (!low[x])
+            bridgeUtil(x, t, low, dfn, par, bridges);
     return bridges;
 }
 
-//Recursive function to get all the articulation points in a graph
-void Graph::APUtil(int u, vector<pair<int,int>> &times, vector<int> &parent, vector<int> &articulationPoints)
+void Graph::APUtil(int u, int &t, vector<int> &low, vector<int> &dfn, vector<int> &par, vector<int> &articulationPoints)
 {
-    static int time = 0;
-    int children = 0;
-    vis[u] = true;
-    times[u] = make_pair(++time,time);
+    dfn[u] = low[u] = ++t;
+    int ch = 0;
     for (auto &x : adj[u])
     {
-        if (!vis[x.first])
+        if (!low[x.first])
         {
-            children++;
-            parent[x.first] = u;
-            APUtil(x.first, times, parent, articulationPoints);
-            times[u].first  = min(times[u].first, times[x.first].first);
-            if ((parent[u] == -1 && children > 1) || (parent[u] != -1 && times[x.first].first >= times[u].second))
-                articulationPoints.push_back(u);
+            ch++;
+            par[x.first] = u;
+            APUtil(x.first, t, low, dfn, par, articulationPoints);
+            low[u] = min(low[u], low[x.first]);
+            if (!par[u] && ch > 1 || par[u] && low[x.first] >= dfn[u])
+                articulationPoints.push_back(x.first);
         }
-        else if (x.first != parent[u])
-            times[u].first  = min(times[u].first, times[x.first].second);
+        else if (par[u] != x.first)
+            low[u] = min(low[u], dfn[x.first]);
     }
 }
 
-//Function to trigger APUtil and get all the articulation points 
-//(nodes where passing through it is the only path between two other nodes) in a graph
 vector<int> Graph::getArticulationPoints()
 {
-    reset();
-    vector<pair<int,int>> times (V, make_pair(0,0));
-    vector<int> parent (V, -1);
+    vector<int> low(V+1), dfn(V+1), par(V+1);
+    int t = 0;
     vector<int> articulationPoints;
-
-    for (int i = 0; i < V; i++)
-        if (!vis[i])
-            APUtil(i, times, parent, articulationPoints);
-    sort(articulationPoints.begin(), articulationPoints.end());
+    for (int x = 1; x <= V; x++)
+        if (!low[x])
+            APUtil(x, t, low, dfn, par, articulationPoints);
     return articulationPoints;
+}
+
+void Graph::SCCUtil(int u, int &t, int &c, vector<int> &low, vector<int> &dfn, vector<bool> &vis, vector<int> &cur, vector<vector<int>> &scc)
+{
+    dfn[u] = low[u] = ++t;
+    cur.push_back(u);
+    vis[u] = true;
+    for (auto &x : adj[u])
+    {
+        if (!dfn[x.first])
+        {
+            SCCUtil(u, t, c, low, dfn, vis, cur, scc);
+            low[u] = min(low[u], low[x.first]);
+        }
+        else if (vis[x.first])
+            low[u] = min(low[u], dfn[x.first]);
+    }
+    if (low[u] == dfn[u])
+    {
+        scc.push_back(vector<int>());
+        while (cur.back() != u)
+            scc[c].push_back(cur.back()), vis[cur.back()] = false, cur.pop_back();
+        scc[c].push_back(cur.back()), vis[cur.back()] = false, cur.pop_back();
+        c++;
+    }
+}
+
+vector<vector<int>> Graph::SCC()
+{
+    vector<int> low(V+1), dfn(V+1), par(V+1), cur;
+    vector<bool> vis(V+1);
+    vector<vector<int>> scc;
+    int t = 0, c = 0;
+    for (int x = 1; x <= V; x++)
+        if (!low[x])
+            SCCUtil(x, t, c, low, dfn, vis, cur, scc);
+    return scc;
+}
+
+int main()
+{
+
 }
